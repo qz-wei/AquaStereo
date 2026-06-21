@@ -1,0 +1,13 @@
+
+# model weights
+*.pth
+*.pyth
+*.pt
+*.ckpt
+*.safetensors
+*.onnx
+checkpoints/
+ckpts/
+weights/
+outputs/
+output/
