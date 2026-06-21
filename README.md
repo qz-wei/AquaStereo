@@ -1,4 +1,4 @@
-# 🚀 AquaStereo 🚀
+# 🚀 AquaStereo (ECCV2026) 🚀
 
 <p align="center">
   <img src="fig/teaser.png" width="90%" alt="AquaStereo Teaser">
@@ -6,7 +6,7 @@
 
 <div align="center">
 
-**AquaStereo: [Paper Title or Short Description Here]**
+**AquaStereo:Enabling Underwater Stereo Matching via Depth-Conditioned Diffusion and Geometry Self-Distillation**
 
 <a href="YOUR_ARXIV_LINK_HERE">
   <img src="https://img.shields.io/badge/arXiv-Paper-b31b1b?logo=arxiv" alt="arXiv">
@@ -32,11 +32,7 @@ This repository contains the official implementation of **AquaStereo**, includin
 
 ## 🤗 Demo
 
-<p align="center">
-  <a href="YOUR_DEMO_LINK_HERE">
-    <img src="fig/teaser.png" width="70%" alt="AquaStereo Demo">
-  </a>
-</p>
+
 
 Demo video link: **YOUR_DEMO_LINK_HERE**
 
@@ -54,9 +50,6 @@ The overall architecture of AquaStereo is shown above. The model takes a rectifi
 
 ## 🌈 Visualization
 
-<p align="center">
-  <img src="fig/teaser.png" width="95%" alt="AquaStereo Visualization">
-</p>
 
 Qualitative visualization examples of AquaStereo.
 
@@ -103,7 +96,6 @@ The pretrained weights will be released on Hugging Face.
 |       Model      |                       Link                      |
 | :--------------: | :---------------------------------------------: |
 |    AquaStereo    | [Download 🤗](YOUR_HUGGINGFACE_MODEL_LINK_HERE) |
-| AquaStereo-Large | [Download 🤗](YOUR_HUGGINGFACE_MODEL_LINK_HERE) |
 
 Please place the downloaded weights under:
 
