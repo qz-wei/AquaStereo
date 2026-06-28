@@ -2,11 +2,12 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from core.update import BasicMultiUpdateBlock
-from core.extractor import MultiBasicEncoder, Feature
+from core.extractor import MultiBasicEncoder
 from core.geometry import Combined_Geo_Encoding_Volume
 from core.submodule import *
 import time
-from core.change3d.encoder import Encoder
+from core.change3d.encoder_vitb import Encoder as EncoderB
+from core.change3d.encoder_vits import Encoder as EncoderS
 from torch import amp
 
 try:
@@ -95,7 +96,7 @@ class hourglass(nn.Module):
         return conv
 
 
-class IGEVStereo_encoder(nn.Module):
+class AquaStereo(nn.Module):
     def __init__(self, args):
         super().__init__()
         self.args = args
@@ -105,7 +106,13 @@ class IGEVStereo_encoder(nn.Module):
         self.cnet = MultiBasicEncoder(output_dim=[args.hidden_dims, context_dims], norm_fn="batch", downsample=args.n_downsample)
         self.update_block = BasicMultiUpdateBlock(self.args, hidden_dims=args.hidden_dims)
         self.context_zqr_convs = nn.ModuleList([nn.Conv2d(context_dims[i], args.hidden_dims[i]*3, 3, padding=3//2) for i in range(self.args.n_gru_layers)])
-        self.encoder = Encoder(args=args,embed_dims=[24, 24, 48, 96,192])
+        self.encoder =None
+        if args.vit_size == "vitb":
+            self.encoder = EncoderB(args=args,embed_dims=[24, 24, 48, 96,192])
+        elif args.vit_size =="vits":
+            self.encoder = EncoderS(args=args,embed_dims=[24, 24, 48, 96,192])
+        
+
         self.conv1x1_layers = nn.ModuleList([
             nn.Conv2d(in_channels=24, out_channels=48, kernel_size=1, stride=1, padding=0, bias=False),
             nn.Conv2d(in_channels=48, out_channels=64, kernel_size=1, stride=1, padding=0, bias=False),

@@ -2,199 +2,24 @@ import sys
 sys.path.append('core')
 
 import os
-os.environ['CUDA_VISIBLE_DEVICES'] = '4'
+# os.environ['CUDA_VISIBLE_DEVICES'] = '0,1'
+
 import argparse
 import time
 import logging
 import numpy as np
 import torch
 from tqdm import tqdm
-from core.igev_stereo import IGEVStereo, autocast
-from core.igev_stereo_foundation import IGEVStereo_foundation
-from core.igev_stereo_vgg19 import IGEVStereo_vgg19
-from core.igev_stereo_resnet import IGEVStereo_resnet
-from core.igev_stereo_resnet_new import IGEVStereo_resnet_new
-from core.cnnandino import IGEVStereo_cnn
-from core.igev_stereo_encoder import IGEVStereo_encoder
-from core.change_igev import IGEVStereo_vggt
-from core.igev_stereo import IGEVStereo
+from core.igev_stereo_encoder import IGEVStereo_encoder, autocast
 import core.stereo_datasets as datasets
 from core.utils.utils import InputPadder
 from PIL import Image
 import torch.utils.data as data
 from pathlib import Path
 from matplotlib import pyplot as plt
+
 def count_parameters(model):
     return sum(p.numel() for p in model.parameters() if p.requires_grad)
-device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-import torch.nn.functional as F
-
-
-@torch.no_grad()
-def validate_UWStereo(model, iters=32, mixed_prec=False,outname="default_output"):
-    """ Peform validation using the KITTI-2015 (train) split """
-    model.eval()
-    aug_params = {}
-    val_dataset = datasets.validate_UWStereo(aug_params)
-    output_name=args.outname
-    torch.backends.cudnn.benchmark = True
-
-    out_list, epe_list, elapsed_list,d1_list = [], [], [],[]
-    for val_id in range(len(val_dataset)):
-        _, image1, image2, flow_gt, valid_gt = val_dataset[val_id]
-        image1 = image1[None].to(device)
-        image2 = image2[None].to(device)
-        #print(image1.shape)
-        padder = InputPadder(image1.shape, divis_by=32)
-        image1, image2 = padder.pad(image1, image2)
-        #print(image1.shape)
-        with autocast(enabled=mixed_prec):
-            start = time.time()
-            flow_pr = model(image1, image2, iters=iters, test_mode=True)
-            end = time.time()
-
-        if val_id > 50:
-            elapsed_list.append(end-start)
-        flow_pr = padder.unpad(flow_pr).cpu().squeeze(0)
-        #print(flow_pr)
-        assert flow_pr.shape == flow_gt.shape, (flow_pr.shape, flow_gt.shape)
-
-        epe = torch.sum((flow_pr - flow_gt)**2, dim=0).sqrt()
-
-        epe_flattened = epe.flatten()
-        val = (valid_gt.flatten() >= 0.5) & (flow_gt.abs().flatten() < 192)
-        # val = valid_gt.flatten() >= 0.5
-
-        out = (epe_flattened > 3.0)
-        image_out = out[val].float().mean().item()
-        image_epe = epe_flattened[val].mean().item()
-        if val_id < 9 or (val_id+1)%10 == 0:
-            logging.info(f"validate_UWStereo Iter {val_id+1} out of {len(val_dataset)}. EPE {round(image_epe,4)} D1 {round(image_out,4)}. Runtime: {format(end-start, '.3f')}s ({format(1/(end-start), '.2f')}-FPS)")
-        epe_list.append(epe_flattened[val].mean().item())
-        d1_list.append(image_out * 100)
-        out_list.append(out[val].cpu().numpy())
-        print(f"mean:{np.mean(np.array(epe_list)):.4f},d1>3px{100*np.mean(np.concatenate(out_list)):.2f}")
-
-    epe_list = np.array(epe_list)
-    out_list = np.concatenate(out_list)
-    d1_list = np.array(d1_list)
-
-    epe = np.mean(epe_list)
-    d1 = 100 * np.mean(out_list)
-
-    avg_runtime = np.mean(elapsed_list)
-        # 保存到文件
-    with open(output_name+".txt", "w") as f:
-        f.write("Index\tEPE\tD1(%)\n")
-        for i, (epe_val, d1_val) in enumerate(zip(epe_list, d1_list)):
-            f.write(f"{i}\t{epe_val:.4f}\t{d1_val:.2f}\n")
-    tmp=[0,450,922,1845,]
-    name=["coral","default","industry","ship"]
-    for i in range(4):
-        if i == 3:  # 最后一个区间
-            epetmp = np.mean(epe_list[tmp[i]:])
-            d1tmp = np.mean(d1_list[tmp[i]:])
-        else:
-            epetmp = np.mean(epe_list[tmp[i]:tmp[i+1]])
-            d1tmp = np.mean(d1_list[tmp[i]:tmp[i+1]])
-        with open(output_name+".txt", "a") as f:
-            f.write(f"{name[i]} Validation UWStereo: EPE {epetmp:.4f}, D1>3px {d1tmp:.2f}%")
-            print(f"{name[i]} Validation UWStereo: EPE {epetmp:.4f}, D1>3px {d1tmp:.2f}%, ")
-            print("\n")
-
-
-    with open(output_name+".txt", "a") as f:
-        f.write(f"Total Validation UWStereo: EPE {epe:.4f}, D1>3px {d1:.2f}%\n")
-        f.write(outname)
-    print(f"Total Validation UWStereo: EPE {epe}, D1>3px {d1:.2f}%, {format(1/avg_runtime, '.2f')}-FPS ({format(avg_runtime, '.3f')}s)")
-    return {'Validation UWStereo-epe': epe, 'Validation UWStereo-d1': d1}
-
-
-@torch.no_grad()
-def validate_UWStereo_new(model, iters=32, mixed_prec=False,outname="default_output"):
-    """ Peform validation using the KITTI-2015 (train) split """
-    model.eval()
-    aug_params = {}
-    val_dataset = datasets.validate_UWStereo(aug_params)
-    output_name=outname
-    torch.backends.cudnn.benchmark = True
-
-    out_list, epe_list, elapsed_list,d1_list = [], [], [],[]
-    for val_id in range(len(val_dataset)):
-        _, image1, image2, flow_gt, valid_gt = val_dataset[val_id]
-        image1 = image1[None].to(device)
-        image2 = image2[None].to(device)
-        
-        #print(image1.shape)
-        padder = InputPadder(image1.shape, divis_by=32)
-        image1, image2 = padder.pad(image1, image2)
-        image1=F.interpolate(image1, size=(320, 736), mode='bilinear', align_corners=False)
-        image2=F.interpolate(image2, size=(320, 736), mode='bilinear', align_corners=False)
-        #print(image1.shape)
-        with autocast(enabled=mixed_prec):
-            start = time.time()
-            flow_pr = model(image1, image2, iters=iters, test_mode=True)
-            flow_gt=F.interpolate(flow_gt, size=(720, 1280), mode='bilinear', align_corners=False)
-            end = time.time()
-
-        if val_id > 50:
-            elapsed_list.append(end-start)
-        flow_pr = padder.unpad(flow_pr).cpu().squeeze(0)
-        #print(flow_pr)
-        assert flow_pr.shape == flow_gt.shape, (flow_pr.shape, flow_gt.shape)
-
-        epe = torch.sum((flow_pr - flow_gt)**2, dim=0).sqrt()
-
-        epe_flattened = epe.flatten()
-        val = (valid_gt.flatten() >= 0.5) & (flow_gt.abs().flatten() < 192)
-        # val = valid_gt.flatten() >= 0.5
-
-        out = (epe_flattened > 3.0)
-        image_out = out[val].float().mean().item()
-        image_epe = epe_flattened[val].mean().item()
-        if val_id < 9 or (val_id+1)%10 == 0:
-            logging.info(f"validate_UWStereo Iter {val_id+1} out of {len(val_dataset)}. EPE {round(image_epe,4)} D1 {round(image_out,4)}. Runtime: {format(end-start, '.3f')}s ({format(1/(end-start), '.2f')}-FPS)")
-        epe_list.append(epe_flattened[val].mean().item())
-        d1_list.append(image_out * 100)
-        out_list.append(out[val].cpu().numpy())
-        print(f"mean:{np.mean(np.array(epe_list)):.4f},d1>3px{100*np.mean(np.concatenate(out_list)):.2f}")
-
-    epe_list = np.array(epe_list)
-    out_list = np.concatenate(out_list)
-    d1_list = np.array(d1_list)
-
-    epe = np.mean(epe_list)
-    d1 = 100 * np.mean(out_list)
-
-    avg_runtime = np.mean(elapsed_list)
-        # 保存到文件
-    with open(output_name+".txt", "w") as f:
-        f.write("Index\tEPE\tD1(%)\n")
-        for i, (epe_val, d1_val) in enumerate(zip(epe_list, d1_list)):
-            f.write(f"{i}\t{epe_val:.4f}\t{d1_val:.2f}\n")
-    tmp=[0,450,922,1845,]
-    name=["coral","default","industry","ship"]
-    for i in range(4):
-        if i == 3:  # 最后一个区间
-            epetmp = np.mean(epe_list[tmp[i]:])
-            d1tmp = np.mean(d1_list[tmp[i]:])
-        else:
-            epetmp = np.mean(epe_list[tmp[i]:tmp[i+1]])
-            d1tmp = np.mean(d1_list[tmp[i]:tmp[i+1]])
-        with open(output_name+".txt", "a") as f:
-            f.write(f"{name[i]} Validation UWStereo: EPE {epetmp:.4f}, D1>3px {d1tmp:.2f}%")
-            print(f"{name[i]} Validation UWStereo: EPE {epetmp:.4f}, D1>3px {d1tmp:.2f}%, ")
-            print("\n")
-
-
-    with open(output_name+".txt", "a") as f:
-        f.write(f"Total Validation UWStereo: EPE {epe:.4f}, D1>3px {d1:.2f}%\n")
-        f.write(outname)
-    print(f"Total Validation UWStereo: EPE {epe}, D1>3px {d1:.2f}%, {format(1/avg_runtime, '.2f')}-FPS ({format(avg_runtime, '.3f')}s)")
-    return {'Validation UWStereo-epe': epe, 'Validation UWStereo-d1': d1}
-
-
-
 
 @torch.no_grad()
 def validate_eth3d(model, iters=32, mixed_prec=False):
@@ -249,7 +74,6 @@ def validate_kitti(model, iters=32, mixed_prec=False):
     model.eval()
     aug_params = {}
     val_dataset = datasets.KITTI(aug_params, image_set='training')
-
     torch.backends.cudnn.benchmark = True
 
     out_list, epe_list, elapsed_list = [], [], []
@@ -390,12 +214,12 @@ def validate_middlebury(model, iters=32, split='MiddEval3', resolution='F', mixe
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument('--restore_ckpt', help="restore checkpoint", default='/data/liangyingping_share/weiqizhe/IGEV-plusplus/pretrained_models/igev_plusplus/kitti2015.pth')
-    parser.add_argument('--dataset', help="dataset for evaluation", default='validate_UWStereo', choices=["validate_UWStereo","eth3d", "kitti", "sceneflow"] + [f"middlebury_{s}" for s in 'FHQ'])
-    parser.add_argument('--mixed_precision', default=True, action='store_true', help='use mixed precision')
-    parser.add_argument('--precision_dtype', default='bfloat32', choices=['float16', 'bfloat16', 'float32'], help='Choose precision type: float16 or bfloat16 or float32')
+    parser.add_argument('--restore_ckpt', help="restore checkpoint", default='/file_system/goosefsx/whu/users/hong.li/qizhe/OpenStereo-2/output/MultiDataset/IGEVPP/igevpp_mix/aqua_root/ckpt/checkpoint_iter_28000.pth')
+    parser.add_argument('--dataset', help="dataset for evaluation", default='kitti', choices=["eth3d", "kitti", "sceneflow"] + [f"middlebury_{s}" for s in 'FHQ'])
+    parser.add_argument('--mixed_precision', default=False, action='store_true', help='use mixed precision')
+    parser.add_argument('--precision_dtype', default='float32', choices=['float16', 'bfloat16', 'float32'], help='Choose precision type: float16 or bfloat16 or float32')
     parser.add_argument('--valid_iters', type=int, default=32, help='number of flow-field updates during forward pass')
-    parser.add_argument('--outname', type=str, default='eval_tmp',help='output name')
+
     # Architecure choices
     parser.add_argument('--hidden_dims', nargs='+', type=int, default=[128]*3, help="hidden state and context dimensions")
     parser.add_argument('--corr_levels', type=int, default=2, help="number of levels in the correlation pyramid")
@@ -409,39 +233,11 @@ if __name__ == '__main__':
     parser.add_argument('--s_disp_interval', type=int, default=1, help="disp interval of small disparity-range geometry encoding volume")
     parser.add_argument('--m_disp_interval', type=int, default=2, help="disp interval of medium disparity-range geometry encoding volume")
     parser.add_argument('--l_disp_interval', type=int, default=4, help="disp interval of large disparity-range geometry encoding volume")
-    parser.add_argument('--whichmodel', help='don\'t simulate imperfect rectification',)#choices=["IGEV++","change_vggt","change_foundation","vgg19+dino","resnet+dino"])
-    parser.add_argument('--image_size', type=int, nargs='+', default=[736,1280], help="size of the random image crops used during training.")
-    parser.add_argument( '--in_height',type=int,default=736,help='Height of RGB image')
-    parser.add_argument('--in_width',type=int,default=1280,help='Width of RGB image')
-    parser.add_argument('--num_perception_frame',type=int,default=2,help='Number of perception frames')
-    parser.add_argument('--pretrained',default='/data/liangyingping_share/weiqizhe/IGEV-plusplus/Change3Dmaster/X3D_L.pyth',type=str,help='Path to pretrained weight')
-    parser.add_argument( '--use_dino',default="/data/liangyingping_share/weiqizhe/train_dvt/ckpts/dinov2_vitb14_pretrain.pth",)
-    parser.add_argument('--dino_strict',default=True,)
-    parser.add_argument('--local_rank', type=int, default=0)
-    parser.add_argument('--distributed', default=True,action='store_true', help='Use distributed training')
+    parser.add_argument('--num_perception_frame', type=int, default=2, help='Number of perception frames')
+    parser.add_argument('--vit_size', default='vitb', choices=['vits', 'vitb'], help='vit size')
     args = parser.parse_args()
 
-    model=None
-    if args.whichmodel == "IGEV++":
-        model = torch.nn.DataParallel(IGEVStereo(args), device_ids=[0])
-    elif args.whichmodel=="change_vggt":
-        model = torch.nn.DataParallel(IGEVStereo_vggt(args), device_ids=[0])
-    elif args.whichmodel=="change_foundation":
-        model = torch.nn.DataParallel(IGEVStereo_foundation(args), device_ids=[0])
-    elif args.whichmodel=="resnet_new+dino":
-        model = torch.nn.DataParallel(IGEVStereo_resnet_new(args), device_ids=[0])  
-    elif args.whichmodel=="vgg19+dino":
-        model = torch.nn.DataParallel(IGEVStereo_vgg19(args), device_ids=[0])
-    elif args.whichmodel=="cnnandino":
-        model = torch.nn.DataParallel(IGEVStereo_cnn(args), device_ids=[0])
-    elif args.whichmodel =="encoder":
-        model = torch.nn.DataParallel(IGEVStereo_encoder(args), device_ids=[0])
-    elif args.whichmodel == "resnet+dino":
-                # 先包装
-        
-        model = torch.nn.DataParallel(IGEVStereo_resnet(args),device_ids=[0])
-
-    print("Parameter Count: %d" % count_parameters(model))
+    model = torch.nn.DataParallel(IGEVStereo_encoder(args), device_ids=[0])
 
     logging.basicConfig(level=logging.INFO,
                         format='%(asctime)s %(levelname)-8s [%(filename)s:%(lineno)d] %(message)s')
@@ -449,33 +245,39 @@ if __name__ == '__main__':
     if args.restore_ckpt is not None:
         assert args.restore_ckpt.endswith(".pth")
         logging.info("Loading checkpoint...")
-        checkpoint = torch.load(args.restore_ckpt, map_location=torch.device('cuda' if torch.cuda.is_available() else 'cpu'))
-        param_key = 'module.encoder.perception_frames'
-        if param_key in checkpoint:
-            param = checkpoint[param_key]  # [1, 3, 2, 384, 1248]
+        checkpoint = torch.load(args.restore_ckpt)
 
-            print(f"Original shape: {param.shape}")
-            
-            # reshape 为 (batch * t, c, h, w) 进行 resize
-            param = param.permute(0, 2, 1, 3, 4).reshape(-1, 3, 384, 1248) 
-            
-            # 插值到目标分辨率
-            resized_param = F.interpolate(param, size=(736, 1280), mode='bilinear', align_corners=False)
-            
-            # reshape 回原始格式 
-            resized_param = resized_param.reshape(1, 2, 3, 736,1280).permute(0, 2, 1, 3, 4)
-            
-            print(f"Resized shape: {resized_param.shape}")
-            
-            # 替换进去
-            checkpoint[param_key] = resized_param
+
+        if "model_state" in checkpoint:
+            state_dict = checkpoint["model_state"]
+        elif "state_dict" in checkpoint:
+            state_dict = checkpoint["state_dict"]
         else:
-            print(f"{param_key} not found in checkpoint.")
-        model.load_state_dict(checkpoint, strict=True)
-        #print(checkpoint.keys())
+            state_dict = checkpoint
+
+
+        from collections import OrderedDict
+        new_state_dict = OrderedDict()
+        model_keys = model.state_dict().keys() # 当前模型所有的标准键名
+
+        from collections import OrderedDict
+        new_state_dict = OrderedDict()
+        model_keys = model.state_dict().keys() # 当前模型的键名（带 module.）
+
+        for k, v in state_dict.items():
+            # 如果 ckpt 里的键名不以 module. 开头，就帮它加上
+            name = k if k.startswith("module.") else f"module.{k}"
+            
+            # 检查加上前缀后的键名，在当前模型中是否存在
+            if name in model_keys:
+                new_state_dict[name] = v
+            else:
+                # print(f"丢弃模型中不存在的权重: {k}")
+                pass
+        model.load_state_dict(new_state_dict, strict=True)
         logging.info(f"Done loading checkpoint")
 
-    model.to(device)
+    model.cuda()
     model.eval()
 
     print(f"The model has {format(count_parameters(model)/1e6, '.2f')}M learnable parameters.")
@@ -491,5 +293,3 @@ if __name__ == '__main__':
 
     elif args.dataset == 'sceneflow':
         validate_sceneflow(model, iters=args.valid_iters, mixed_prec=args.mixed_precision)
-    elif args.dataset == 'validate_UWStereo':
-        validate_UWStereo(model, iters=args.valid_iters, mixed_prec=args.mixed_precision)

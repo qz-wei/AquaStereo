@@ -468,7 +468,8 @@ def main():
     parser.add_argument('--save_freq', type=int, default=10000, help='checkpoint saving frequency')
     parser.add_argument('--resume_optimizer', action='store_true', help='resume optimizer/scheduler/scaler states from checkpoint')
     parser.add_argument('--world_size', type=int, default=None, help='Number of GPUs for DDP; default uses torch.cuda.device_count()')
-
+    parser.add_argument('--vit_size', default='vitb', choices=['vits', 'vitb'], help='vit size')
+    
     args = parser.parse_args()
 
     if args.world_size is None:
