@@ -11,12 +11,8 @@ from typing import Dict, List, Optional, Sequence, Tuple, Union, Callable, Any
 import torch
 import torch.nn as nn
 import torch.utils.checkpoint
-from einops import rearrange, repeat
 
 from core.change3d.x3d import create_x3d
-from core.change3d.change_decoder import ChangeDecoder
-from core.change3d.caption_decoder import CaptionDecoder
-from core.change3d.utils import weight_init
 from torch.nn import functional as F
 import torch.distributed as dist
 import numpy as np
