@@ -1,4 +1,4 @@
-# 🚀 AquaStereo (ECCV2026) 🚀
+# AquaStereo (ECCV2026)
 
 <p align="center">
   <img src="fig/teaser.png" width="90%" alt="AquaStereo Teaser">
@@ -22,15 +22,16 @@
 
 ---
 
-## 🌊 Overview
+## Overview
 
-AquaStereo is a stereo matching framework designed for accurate and robust disparity estimation. It aims to improve stereo depth perception under challenging conditions and provide strong generalization ability across different scenes.
+Learning-based stereo matching models often struggle in underwater environments, where color attenuation, turbidity, low texture, and scarce in-domain training data make reliable correspondence estimation difficult. **AquaStereo** is a perception-enhanced underwater stereo matching framework designed to improve robustness and zero-shot generalization in these degraded scenes.
 
-This repository contains the official implementation of **AquaStereo**, including model definition, training scripts, evaluation scripts, and visualization examples.
+
+This repository contains the official implementation of **AquaStereo**, including model definitions, training scripts, evaluation scripts, and visualization examples.
 
 ---
 
-## 🤗 Demo
+## Demo
 
 
 
@@ -38,7 +39,7 @@ Demo video link: **YOUR_DEMO_LINK_HERE**
 
 ---
 
-## 🧠 Network Architecture
+## Network Architecture
 
 <p align="center">
   <img src="fig/network.png" width="95%" alt="AquaStereo Network">
@@ -48,14 +49,17 @@ The overall architecture of AquaStereo is shown above. The model takes a rectifi
 
 ---
 
-## 🌈 Visualization
+## Visualization
 
 
-Qualitative visualization examples of AquaStereo.
+<p align="center">
+  <img src="fig/visualization.png" width="95%" alt="AquaStereo Qualitative Visualization">
+</p>
+
 
 ---
 
-## ⚙️ Installation
+## Installation
 
 The environment follows the same setting as the reference implementation.
 
@@ -89,15 +93,26 @@ pip install gradio==4.29.0
 
 ---
 
-## 📦 Model Weights
+## Model Weights
 
-The pretrained weights will be released on Hugging Face.
+Backbone pretrained weights are required only for training. AquaStereo checkpoints are used for evaluation and can also be used to resume training.
 
-|       Model      |                       Link                      |
-| :--------------: | :---------------------------------------------: |
-|    AquaStereo    | [Download 🤗](YOUR_HUGGINGFACE_MODEL_LINK_HERE) |
+### Backbone Pretrained Weights
 
-Please place the downloaded weights under:
+| Component | File name | Link |
+| :-------: | :-------- | :--- |
+| X3D | `X3D_L.pyth` | [Download](YOUR_X3D_PRETRAIN_LINK_HERE) |
+| DINOv2 ViT-B | `dinov2_vitb14_reg4_pretrain.pth` | [Download](YOUR_DINOV2_VITB_PRETRAIN_LINK_HERE) |
+| DINOv2 ViT-S | `dinov2_vits14_reg4_pretrain.pth` | [Download](YOUR_DINOV2_VITS_PRETRAIN_LINK_HERE) |
+
+### AquaStereo Checkpoints
+
+| Model | ViT backbone | Link |
+| :---: | :----------: | :--- |
+| AquaStereo-ViT-B | ViT-B | [Download](YOUR_AQUASTEREO_VITB_CKPT_LINK_HERE) |
+| AquaStereo-ViT-S | ViT-S | [Download](YOUR_AQUASTEREO_VITS_CKPT_LINK_HERE) |
+
+Please place the training backbone pretrained weights under:
 
 ```bash
 pretrained/
@@ -107,12 +122,28 @@ Example:
 
 ```text
 pretrained/
-└── aquastereo.pth
++-- X3D_L.pyth
++-- dinov2_vitb14_reg4_pretrain.pth
++-- dinov2_vits14_reg4_pretrain.pth
+```
+
+Please place AquaStereo checkpoints under:
+
+```bash
+checkpoints/
+```
+
+Example:
+
+```text
+checkpoints/
++-- aquastereo_vitb.pth
++-- aquastereo_vits.pth
 ```
 
 ---
 
-## ✏️ Required Data
+## Required Data
 
 The following datasets can be used for training and evaluation:
 
@@ -130,68 +161,90 @@ Please organize the datasets according to your local configuration and update th
 
 ---
 
-## ✈️ Evaluation
+## Evaluation
 
 To evaluate AquaStereo, run:
 
 ```bash
-python evaluate_stereo.py --restore_ckpt ./pretrained/aquastereo.pth --dataset kitti
+python evaluate_stereo.py --restore_ckpt ./checkpoints/aquastereo_vitb.pth --vit_size vitb --dataset kitti
 ```
 
 You can replace `kitti` with other supported datasets, for example:
 
 ```bash
-python evaluate_stereo.py --restore_ckpt ./pretrained/aquastereo.pth --dataset sceneflow
-python evaluate_stereo.py --restore_ckpt ./pretrained/aquastereo.pth --dataset eth3d
-python evaluate_stereo.py --restore_ckpt ./pretrained/aquastereo.pth --dataset middlebury
+python evaluate_stereo.py --restore_ckpt ./checkpoints/aquastereo_vitb.pth --vit_size vitb --dataset sceneflow
+python evaluate_stereo.py --restore_ckpt ./checkpoints/aquastereo_vits.pth --vit_size vits --dataset eth3d
+python evaluate_stereo.py --restore_ckpt ./checkpoints/aquastereo_vitb.pth --vit_size vitb --dataset middlebury_F
 ```
 
 ---
 
-## 🏋️ Training
+## Training
 
 To train AquaStereo with a single GPU, run:
 
 ```bash
-python train.py
+python train.py \
+  --vit_size vitb \
+  --pretrained_change3d ./pretrained/X3D_L.pyth \
+  --pretrained_dino ./pretrained/dinov2_vitb14_reg4_pretrain.pth
+```
+
+To train the ViT-S version, switch both `--vit_size` and the DINOv2 pretrained weight:
+
+```bash
+python train.py \
+  --vit_size vits \
+  --pretrained_change3d ./pretrained/X3D_L.pyth \
+  --pretrained_dino ./pretrained/dinov2_vits14_reg4_pretrain.pth
 ```
 
 For distributed training, run:
 
 ```bash
-CUDA_VISIBLE_DEVICES=0,1,2,3 python train_ddp.py
+CUDA_VISIBLE_DEVICES=0,1,2,3 python train_ddp.py \
+  --vit_size vitb \
+  --pretrained_change3d ./pretrained/X3D_L.pyth \
+  --pretrained_dino ./pretrained/dinov2_vitb14_reg4_pretrain.pth
 ```
 
 or use `torchrun`:
 
 ```bash
-CUDA_VISIBLE_DEVICES=0,1,2,3 torchrun --nproc_per_node=4 train_ddp.py
+CUDA_VISIBLE_DEVICES=0,1,2,3 torchrun --nproc_per_node=4 train_ddp.py \
+  --vit_size vitb \
+  --pretrained_change3d ./pretrained/X3D_L.pyth \
+  --pretrained_dino ./pretrained/dinov2_vitb14_reg4_pretrain.pth
 ```
 
-Please modify dataset paths, batch size, training schedule, and checkpoint paths according to your local environment.
+The X3D and DINOv2 weights above are used during training. Evaluation only requires the AquaStereo checkpoint specified by `--restore_ckpt`.
+
+To resume from an AquaStereo checkpoint, add `--restore_ckpt ./checkpoints/aquastereo_vitb.pth` or `--restore_ckpt ./checkpoints/aquastereo_vits.pth`. Please modify dataset paths, batch size, training schedule, and checkpoint paths according to your local environment.
 
 ---
 
-## 📁 Project Structure
+## Project Structure
 
 ```text
 AquaStereo-main/
-├── core/
-├── dinov2/
-├── fig/
-│   ├── network.png
-│   └── teaser.png
-├── pretrained/
-├── evaluate_stereo.py
-├── train.py
-├── train_ddp.py
-├── README.md
-└── requirements.txt
++-- core/
++-- dinov2/
++-- fig/
+|   +-- network.png
+|   +-- teaser.png
+|   +-- visualization.png
++-- pretrained/
++-- checkpoints/
++-- evaluate_stereo.py
++-- train.py
++-- train_ddp.py
++-- README.md
++-- requirements.txt
 ```
 
 ---
 
-## 📌 Notes
+## Notes
 
 * Large model weights are not included in this repository.
 * Please download pretrained weights from Hugging Face.
@@ -226,7 +279,7 @@ __pycache__/
 
 ---
 
-## 📝 Citation
+## Citation
 
 If you find AquaStereo useful in your research, please consider citing our work:
 
@@ -241,16 +294,7 @@ If you find AquaStereo useful in your research, please consider citing our work:
 
 ---
 
-## 🙏 Acknowledgements
+## Acknowledgements
 
-This project is built upon several excellent open-source stereo matching and vision foundation model projects. We sincerely thank the authors and contributors of these works for their valuable contributions to the community.
+This project is based on [RAFT-Stereo](https://github.com/princeton-vl/RAFT-Stereo), [GMStereo](https://github.com/autonomousvision/unimatch), [CoEx](https://github.com/antabangun/coex), and [IGEV++](https://github.com/gangweix/IGEV-plusplus). We thank the original authors for their excellent works.
 
----
-
-## 📬 Contact
-
-For questions or discussions, please contact:
-
-```text
-YOUR_EMAIL_HERE
-```

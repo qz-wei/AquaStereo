@@ -15,9 +15,8 @@ import torch.optim as optim
 from torch.utils.tensorboard import SummaryWriter
 import torch.nn.functional as F
 
-from core.igev_stereo_encoder import IGEVStereo_encoder
+from core.AquaStereo import AquaStereo
 import core.stereo_datasets as datasets
-import core.fake_datasets as datasets_fake
 
 try:
     from torch.cuda.amp import GradScaler
@@ -254,11 +253,6 @@ def load_checkpoint_for_train(ckpt_path, model, optimizer=None, scheduler=None, 
 
 
 def parse_batch(data_blob, device):
-    """
-    兼容两种 dataset 返回：
-    1) image1, image2, disp_gt, valid
-    2) info, image1, image2, disp_gt, valid
-    """
     if len(data_blob) == 5:
         _, image1, image2, disp_gt, valid = data_blob
     elif len(data_blob) == 4:
@@ -271,16 +265,6 @@ def parse_batch(data_blob, device):
     disp_gt = disp_gt.to(device, non_blocking=True)
     valid = valid.to(device, non_blocking=True)
     return image1, image2, disp_gt, valid
-
-
-def build_train_loader(args):
-    """
-    单卡训练直接用普通 DataLoader，不需要 DistributedSampler。
-    这里默认先走 fake_datasets；如果你想用真实数据，把第一行换成 datasets.fetch_dataloader(args)。
-    """
-    if args.train_datasets == "fake":
-        return datasets_fake.fetch_dataloader(args)
-    return datasets.fetch_dataloader(args)
 
 
 def train(args):
@@ -298,19 +282,7 @@ def train(args):
         format='%(asctime)s %(levelname)-8s [%(filename)s:%(lineno)d] %(message)s'
     )
 
-    model = IGEVStereo_encoder(args).to(device)
-
-    print("Parameter Count: %d" % count_parameters(model))
-    for name, param in model.named_parameters():
-        print(f"{name}: {'Trainable' if param.requires_grad else 'Frozen'}")
-    total_params = count_parameters(model)
-    trainable_params = count_trainable_parameters(model)
-    param_size_MB = parameters_size_in_MB(model)
-    trainable_ratio = trainable_params / total_params * 100
-    print(f"✅ 模型总参数量: {total_params:,}")
-    print(f"✅ 可训练参数量: {trainable_params:,}")
-    print(f"✅ 可训练参数占比: {trainable_ratio:.2f}%")
-    print(f"✅ 参数总大小（float32）：{param_size_MB:.2f} MB")
+    model = AquaStereo(args).to(device)
 
     start_step = 0
     if args.restore_ckpt is not None:
@@ -326,7 +298,7 @@ def train(args):
             resume_optimizer=False,
         )
 
-    train_loader = build_train_loader(args)
+    train_loader = datasets.fetch_dataloader(args)
 
     optimizer, scheduler = fetch_optimizer(args, model)
     scaler = GradScaler(enabled=args.mixed_precision)
@@ -437,11 +409,12 @@ def main():
     parser.add_argument('--spatial_scale', type=float, nargs='+', default=[-0.4, 0.8], help='re-scale the images')
     parser.add_argument('--noyjitter', action='store_true', help="don't simulate imperfect rectification")
     parser.add_argument('--num_perception_frame', type=int, default=2, help='Number of perception frames')
-    parser.add_argument('--pretrained', default=r'C:\Users\MECHREVO\Desktop\cvpr\opensource\AquaStereo-main\X3D_L.pyth', type=str, help='Path to pretrained weight')
-    parser.add_argument('--use_dino', default=r"C:\Users\MECHREVO\Desktop\cvpr\opensource\AquaStereo-main\dinov2_vitb14_reg4_pretrain.pth")
+    parser.add_argument('--pretrained_change3d', default='./pretrained/X3D_L.pyth', type=str, help='Path to pretrained weight')
+    parser.add_argument('--pretrained_dino', default='./pretrained/dinov2_vitb14_reg4_pretrain.pth')
     parser.add_argument('--save_freq', type=int, default=10000, help='checkpoint saving frequency')
     parser.add_argument('--resume_optimizer', action='store_true', help='resume optimizer/scheduler/scaler states from checkpoint')
-
+    parser.add_argument('--vit_size', default='vitb', choices=['vits', 'vitb'], help='vit size')
+    
     args = parser.parse_args()
     train(args)
 

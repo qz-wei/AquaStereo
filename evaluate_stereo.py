@@ -10,7 +10,7 @@ import logging
 import numpy as np
 import torch
 from tqdm import tqdm
-from core.igev_stereo_encoder import IGEVStereo_encoder, autocast
+from core.AquaStereo import AquaStereo, autocast
 import core.stereo_datasets as datasets
 from core.utils.utils import InputPadder
 from PIL import Image
@@ -237,7 +237,7 @@ if __name__ == '__main__':
     parser.add_argument('--vit_size', default='vitb', choices=['vits', 'vitb'], help='vit size')
     args = parser.parse_args()
 
-    model = torch.nn.DataParallel(IGEVStereo_encoder(args), device_ids=[0])
+    model = torch.nn.DataParallel(AquaStereo(args), device_ids=[0])
 
     logging.basicConfig(level=logging.INFO,
                         format='%(asctime)s %(levelname)-8s [%(filename)s:%(lineno)d] %(message)s')
@@ -258,21 +258,19 @@ if __name__ == '__main__':
 
         from collections import OrderedDict
         new_state_dict = OrderedDict()
-        model_keys = model.state_dict().keys() # 当前模型所有的标准键名
+        model_keys = model.state_dict().keys() 
 
         from collections import OrderedDict
         new_state_dict = OrderedDict()
-        model_keys = model.state_dict().keys() # 当前模型的键名（带 module.）
+        model_keys = model.state_dict().keys() 
 
         for k, v in state_dict.items():
-            # 如果 ckpt 里的键名不以 module. 开头，就帮它加上
+
             name = k if k.startswith("module.") else f"module.{k}"
             
-            # 检查加上前缀后的键名，在当前模型中是否存在
             if name in model_keys:
                 new_state_dict[name] = v
             else:
-                # print(f"丢弃模型中不存在的权重: {k}")
                 pass
         model.load_state_dict(new_state_dict, strict=True)
         logging.info(f"Done loading checkpoint")

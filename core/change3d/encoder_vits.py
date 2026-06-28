@@ -42,28 +42,18 @@ def get_resize_keep_aspect_ratio(H, W, divider=16, max_H=1232, max_W=1232):
 
 
 class Encoder(nn.Module):
-    """
-    Encoder model based on X3D architecture with feature enhancement capabilities.
 
-    当前版本：
-    1) 训练初始化时会加载 args.pretrained 对应的 X3D 预训练权重。
-    2) DINOv2 vit_small 使用 nn.ModuleList 注册到模型中，因此会进入统一 ckpt 保存。
-       DINOv2 backbone 设置为可训练，会参与反向传播和参数更新。
-    3) perception_frames 保持为 learnable parameter，forward 时动态插值到当前输入图片 H/W，
-       因此不同分辨率输入不会因为 token 尺寸不一致而 cat 失败。
-    """
 
     def __init__(self, args: Any, embed_dims: List[int]) -> None:
         super().__init__()
         self.args = args
         self.num_perception_frame = 2
 
-        # Initialize X3D backbone.
+
         self.x3d = create_x3d(input_clip_length=self.num_perception_frame + 2, depth_factor=5.0)
         self._load_x3d_pretrained()
 
-        # Learnable perception frames.
-        # 这里仍然需要一个“基准尺寸”来保存参数；forward 会 resize 到当前输入尺寸。
+
         init_h = 512
         init_w = 512
         self.perception_frames = nn.Parameter(
@@ -71,10 +61,8 @@ class Encoder(nn.Module):
             requires_grad=True,
         )
 
-        # Optional DINOv2 branch.
-        # 注意：这里换成 DINOv2 ViT-S/14。
-        # 如果你的 small 权重路径不同，直接改这个路径即可。
-        self.use_dino = "/file_system/goosefsx/whu/users/hong.li/qizhe/AquaStereo-main/dinov2_vits14_pretrain.pth"
+
+        self.use_dino = getattr(args, "pretrained_dino", "none") != "none"
         self.train_dino = True
         if self.use_dino:
             dvt_weights = torch.load(self.use_dino, map_location="cpu")
@@ -86,7 +74,7 @@ class Encoder(nn.Module):
                 elif "model_state" in dvt_weights:
                     dvt_weights = dvt_weights["model_state"]
 
-            # DINOv2 ViT-S/14: output dim = 384.
+
             vit_kwargs = dict(
                 img_size=518,
                 patch_size=14,
@@ -98,13 +86,13 @@ class Encoder(nn.Module):
             msg = dvt_vits14.load_state_dict(dvt_weights, strict=False)
             print(f"[Encoder] Loaded DINOv2 ViT-S/14: {self.use_dino}, {msg}")
 
-            # 注册到模型中，并允许参与训练。
+
             for p in dvt_vits14.parameters():
                 p.requires_grad_(self.train_dino)
 
             self.dvt_vits14 = nn.ModuleList([dvt_vits14])
 
-            # ViT-S/14 patch token dim 是 384，不是 ViT-B 的 768。
+
             self.dino_proj = nn.Sequential(nn.Conv2d(384, 24, kernel_size=1))
         else:
             self.dvt_vits14 = None
@@ -127,16 +115,8 @@ class Encoder(nn.Module):
 
 
     def _load_x3d_pretrained(self) -> None:
-        """
-        Load X3D pretrained weights during training/model construction.
 
-        支持常见格式：
-        - {"model_state": state_dict}
-        - {"state_dict": state_dict}
-        - {"model": state_dict}
-        - 直接就是 state_dict
-        """
-        pretrained = '/file_system/goosefsx/whu/users/hong.li/qizhe/AquaStereo-main/X3D_L.pyth'
+        pretrained = getattr(self.args, "pretrained_change3d", None)
         if pretrained is None or str(pretrained).lower() in ["", "none", "null"]:
             print("[Encoder] Skip X3D pretrained loading because args.pretrained is empty.")
             return
@@ -157,7 +137,6 @@ class Encoder(nn.Module):
         else:
             state_dict = ckpt
 
-        # Remove common wrappers if present.
         cleaned = {}
         for k, v in state_dict.items():
             nk = k
@@ -176,15 +155,7 @@ class Encoder(nn.Module):
             print(f"[Encoder] strict=True failed with: {e}")
 
     def _resize_perception_frames(self, x: torch.Tensor) -> torch.Tensor:
-        """
-        Resize learnable perception frames to the current input image size.
 
-        Args:
-            x: [B, C, H, W]
-
-        Returns:
-            [B, 3, T, H, W]
-        """
         B, _, H, W = x.shape
         p = self.perception_frames.to(device=x.device, dtype=x.dtype)
 
@@ -201,17 +172,11 @@ class Encoder(nn.Module):
             # [T, C, H, W] -> [1, C, T, H, W]
             p = p_2d.reshape(1, T, C, H, W).permute(0, 2, 1, 3, 4).contiguous()
 
-        # expand 不复制参数；cat 时会自然生成实际输入序列。
+
         return p.expand(B, -1, -1, -1, -1)
 
     @torch.cuda.amp.autocast()
     def _process_dino_frame(self, frame: torch.Tensor, target_hw: Optional[Tuple[int, int]] = None) -> torch.Tensor:
-        """
-        DINOv2 feature extraction.
-
-        frame: [B, C, H, W]
-        target_hw: 输出特征需要对齐到的空间尺寸；如果为 None，则对齐到 frame 自身尺寸。
-        """
         if not self.use_dino:
             raise RuntimeError("_process_dino_frame was called while use_dino is disabled.")
 
@@ -224,7 +189,6 @@ class Encoder(nn.Module):
             align_corners=False,
         )
 
-        # 不使用 torch.no_grad()，保证 DINOv2 ViT-S/14 可以反向传播。
         dino_feat = self.dvt_vits14[0].forward_features(dino_input)["x_norm_patchtokens"]
         B, N, C = dino_feat.shape
         dino_feat = dino_feat.permute(0, 2, 1).reshape(
@@ -263,9 +227,7 @@ class Encoder(nn.Module):
         enhanced_x = x.clone()
 
         if x0_pre_post is not None:
-            # x0_pre_post 是进入 X3D block 之前的原始 pre/post frame。
-            # 这里必须把 DINO 输出 resize 到当前 block 的 feature spatial size，
-            # 否则输入图像尺寸变化或 X3D block 下采样后会发生 H/W mismatch。
+
             raw_pre_frame, raw_post_frame = x0_pre_post
             target_hw = middle_frame.shape[-2:]
 
@@ -274,7 +236,7 @@ class Encoder(nn.Module):
             semantic_diff = torch.abs(dino_feat_pre - dino_feat_post)
             enhanced_middle_frame = middle_frame + semantic_diff
 
-            # 原逻辑：num_perception_frame == 3 时，同时增强 pre/post perception frame。
+
             if self.num_perception_frame == 3:
                 enhanced_x[:, :, 1] = middlepre_frame + dino_feat_pre
                 enhanced_x[:, :, self.num_perception_frame] = middlepost_frame + dino_feat_post
@@ -287,11 +249,7 @@ class Encoder(nn.Module):
         return enhanced_x
 
     def base_forward(self, x: torch.Tensor, output_final: bool = False) -> List[torch.Tensor]:
-        """
-        Forward pass through X3D blocks with enhancement.
 
-        x: [B, C, T, H, W]
-        """
         if output_final:
             for i in range(5):
                 x = self.x3d.blocks[i](x)
@@ -316,13 +274,7 @@ class Encoder(nn.Module):
         return out
 
     def forward(self, x: torch.Tensor, y: torch.Tensor, output_final: bool = False) -> List[torch.Tensor]:
-        """
-        Forward pass with input and target frames.
 
-        Args:
-            x: [B, C, H, W]
-            y: [B, C, H, W]
-        """
         if x.ndim != 4 or y.ndim != 4:
             raise ValueError(f"Encoder expects x/y as [B, C, H, W], got x={tuple(x.shape)}, y={tuple(y.shape)}")
         if x.shape[0] != y.shape[0] or x.shape[1] != y.shape[1]:
@@ -334,7 +286,6 @@ class Encoder(nn.Module):
             )
 
         if self.use_dino and not self.train_dino:
-            # 只有冻结 DINO 时才保持 eval；当前 train_dino=True，因此 DINO 会跟随 model.train() 训练。
             self.dvt_vits14.eval()
 
         expand_percep_frames = self._resize_perception_frames(x)
@@ -350,13 +301,7 @@ class Encoder(nn.Module):
 
 
 def load_unified_ckpt(model: nn.Module, ckpt_path: str, map_location: str = "cpu", strict: bool = False):
-    """
-    Load one unified checkpoint for train/eval.
 
-    Encoder 初始化时会先加载 args.pretrained 作为 X3D 初始化；
-    eval 或 resume 时再用这个函数加载完整统一 ckpt 覆盖当前模型权重。
-    如果 ckpt 里的 encoder.perception_frames 和当前模型构建尺寸不同，会先 resize 再加载。
-    """
     ckpt = torch.load(ckpt_path, map_location=map_location)
 
     if isinstance(ckpt, dict):
@@ -371,7 +316,7 @@ def load_unified_ckpt(model: nn.Module, ckpt_path: str, map_location: str = "cpu
     else:
         state_dict = ckpt
 
-    # Remove common wrappers: module.xxx / model.xxx
+
     cleaned_state_dict = {}
     for k, v in state_dict.items():
         new_k = k

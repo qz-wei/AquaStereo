@@ -13,9 +13,8 @@ import torch.multiprocessing as mp
 from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.utils.tensorboard import SummaryWriter
 from torch.utils.data.distributed import DistributedSampler
-from core.igev_stereo_encoder import IGEVStereo_encoder
+from core.AquaStereo import AquaStereo
 import core.stereo_datasets as datasets
-import core.fake_datasets as datasets_fake
 import torch.nn.functional as F
 
 try:
@@ -229,13 +228,6 @@ def save_checkpoint(model, optimizer, scheduler, scaler, args, step, save_path):
 
 def load_checkpoint_for_train(ckpt_path, model, optimizer=None, scheduler=None, scaler=None,
                               local_rank=0, resume_optimizer=False):
-    """
-    Load checkpoint saved by save_checkpoint.
-
-    兼容两类 ckpt：
-    1) 新的统一 ckpt: {"model": state_dict, ...}，包含 DINOv2 vit_base；
-    2) 老的纯 state_dict 或不含 DINOv2 的 ckpt。
-    """
     checkpoint = torch.load(ckpt_path, map_location=f"cuda:{local_rank}")
 
     if isinstance(checkpoint, dict):
@@ -291,24 +283,8 @@ def train(local_rank, world_size, args):
             format='%(asctime)s %(levelname)-8s [%(filename)s:%(lineno)d] %(message)s'
         )
 
-    # 1. Build raw model first.
-    raw_model = IGEVStereo_encoder(args).to(local_rank)
+    raw_model = AquaStereo(args).to(local_rank)
 
-    if local_rank == 0:
-        print("Parameter Count: %d" % count_parameters(raw_model))
-        for name, param in raw_model.named_parameters():
-            print(f"{name}: {'Trainable' if param.requires_grad else 'Frozen'}")
-        total_params = count_parameters(raw_model)
-        trainable_params = count_trainable_parameters(raw_model)
-        param_size_MB = parameters_size_in_MB(raw_model)
-        trainable_ratio = trainable_params / total_params * 100
-        print(f"✅ 模型总参数量: {total_params:,}")
-        print(f"✅ 可训练参数量: {trainable_params:,}")
-        print(f"✅ 可训练参数占比: {trainable_ratio:.2f}%")
-        print(f"✅ 参数总大小（float32）：{param_size_MB:.2f} MB")
-
-    # 2. Load model weights before DDP wrapping.
-    #    这里 strict=False，用于兼容旧 ckpt 或部分 key 不匹配的情况。
     start_step = 0
     if args.restore_ckpt is not None:
         assert args.restore_ckpt.endswith(".pth") or args.restore_ckpt.endswith(".pt")
@@ -324,10 +300,10 @@ def train(local_rank, world_size, args):
             resume_optimizer=False,
         )
 
-    # 3. Wrap with DDP.
+
     model = DDP(raw_model, device_ids=[local_rank], output_device=local_rank, find_unused_parameters=False)
 
-    train_dataset = datasets_fake.fetch_dataloader(args).dataset
+    train_dataset = datasets.fetch_dataloader(args).dataset
     train_sampler = DistributedSampler(
         train_dataset,
         num_replicas=world_size,
@@ -343,13 +319,10 @@ def train(local_rank, world_size, args):
         drop_last=True
     )
 
-    # 4. Optimizer and scheduler.
-    #    原代码里的 args.whichmodel 没有定义，而且 else 分支 optimizer 未创建，会直接报错。
     optimizer, scheduler = fetch_optimizer(args, model)
 
     scaler = GradScaler(enabled=args.mixed_precision)
 
-    # Optional: resume optimizer/scheduler/scaler states after they are created.
     if args.restore_ckpt is not None and args.resume_optimizer:
         _ = load_checkpoint_for_train(
             args.restore_ckpt,
@@ -399,7 +372,6 @@ def train(local_rank, world_size, args):
 
             total_steps += 1
 
-            # Save full unified checkpoint, including DINOv2 vit_base.
             if total_steps % args.save_freq == 0 and local_rank == 0:
                 save_path = Path(args.logdir) / f"{total_steps}_{args.name}.pth"
                 save_checkpoint(
@@ -437,7 +409,7 @@ def main():
     parser.add_argument('--mixed_precision', action='store_true', help='use mixed precision')
     parser.add_argument('--precision_dtype', default='bfloat16', choices=['float16', 'bfloat16', 'float32'], help='Choose precision type')
     parser.add_argument('--batch_size', type=int, default=1, help="batch size used during training")
-    parser.add_argument('--train_datasets', default='mix_raw_vidtome', help="training datasets")
+    parser.add_argument('--train_datasets', default='kitti', help="training datasets")
     parser.add_argument('--lr', type=float, default=0.0001, help="max learning rate")
     parser.add_argument('--num_steps', type=int, default=200000, help="length of training schedule")
     parser.add_argument('--image_size', type=int, nargs='+', default=[736,736], help="size of the random image crops")
@@ -463,8 +435,8 @@ def main():
     parser.add_argument('--spatial_scale', type=float, nargs='+', default=[-0.4, 0.8], help='re-scale the images')
     parser.add_argument('--noyjitter', action='store_true', help='don\'t simulate imperfect rectification')
     parser.add_argument('--num_perception_frame', type=int, default=2, help='Number of perception frames')
-    parser.add_argument('--pretrained', default=r'C:\Users\MECHREVO\Desktop\cvpr\opensource\AquaStereo-main\X3D_L.pyth', type=str, help='Path to pretrained weight')
-    parser.add_argument('--use_dino', default=r"C:\Users\MECHREVO\Desktop\cvpr\opensource\AquaStereo-main\dinov2_vitb14_reg4_pretrain.pth")
+    parser.add_argument('--pretrained_change3d', default='./pretrained/X3D_L.pyth', type=str, help='Path to pretrained weight')
+    parser.add_argument('--pretrained_dino', default='./pretrained/dinov2_vitb14_reg4_pretrain.pth')
     parser.add_argument('--save_freq', type=int, default=10000, help='checkpoint saving frequency')
     parser.add_argument('--resume_optimizer', action='store_true', help='resume optimizer/scheduler/scaler states from checkpoint')
     parser.add_argument('--world_size', type=int, default=None, help='Number of GPUs for DDP; default uses torch.cuda.device_count()')
