@@ -223,72 +223,16 @@ To resume from an AquaStereo checkpoint, add `--restore_ckpt ./checkpoints/aquas
 
 ---
 
-## Project Structure
-
-```text
-AquaStereo-main/
-+-- core/
-+-- dinov2/
-+-- fig/
-|   +-- network.png
-|   +-- teaser.png
-|   +-- visualization.png
-+-- pretrained/
-+-- checkpoints/
-+-- evaluate_stereo.py
-+-- train.py
-+-- train_ddp.py
-+-- README.md
-+-- requirements.txt
-```
-
----
-
-## Notes
-
-* Large model weights are not included in this repository.
-* Please download pretrained weights from Hugging Face.
-* Dataset files should be prepared manually.
-* Checkpoints, logs, and output files are recommended to be excluded from Git tracking.
-
-Recommended `.gitignore` rules:
-
-```gitignore
-# model weights and checkpoints
-*.pth
-*.pyth
-*.pt
-*.ckpt
-*.safetensors
-*.onnx
-
-pretrained/
-checkpoints/
-ckpts/
-weights/
-outputs/
-output/
-logs/
-runs/
-wandb/
-
-# python cache
-__pycache__/
-*.pyc
-```
-
----
-
 ## Citation
 
 If you find AquaStereo useful in your research, please consider citing our work:
 
 ```bibtex
 @inproceedings{aquastereo,
-  title     = {AquaStereo},
-  author    = {},
-  booktitle = {},
-  year      = {}
+  title     = {AquaStereo: Enabling Underwater Stereo Matching via Depth-Conditioned Diffusion and Geometry Self-Distillation},
+  author    = {Wei, Qizhe and Liang, Yingping and You, Shaodi and Fu, Ying},
+  booktitle = {European Conference on Computer Vision (ECCV)},
+  year      = {2026}
 }
 ```
 
