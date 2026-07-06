@@ -31,13 +31,6 @@ This repository contains the official implementation of **AquaStereo**, includin
 
 ---
 
-## Demo
-
-
-
-Demo video link: **YOUR_DEMO_LINK_HERE**
-
----
 
 ## Network Architecture
 
