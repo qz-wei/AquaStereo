@@ -6,8 +6,7 @@ from core.extractor import MultiBasicEncoder
 from core.geometry import Combined_Geo_Encoding_Volume
 from core.submodule import *
 import time
-from core.change3d.encoder_vitb import Encoder as EncoderB
-from core.change3d.encoder_vits import Encoder as EncoderS
+from core.change3d.encoder import Encoder 
 from torch import amp
 
 try:
@@ -106,11 +105,9 @@ class AquaStereo(nn.Module):
         self.cnet = MultiBasicEncoder(output_dim=[args.hidden_dims, context_dims], norm_fn="batch", downsample=args.n_downsample)
         self.update_block = BasicMultiUpdateBlock(self.args, hidden_dims=args.hidden_dims)
         self.context_zqr_convs = nn.ModuleList([nn.Conv2d(context_dims[i], args.hidden_dims[i]*3, 3, padding=3//2) for i in range(self.args.n_gru_layers)])
-        self.encoder =None
-        if args.vit_size == "vitb":
-            self.encoder = EncoderB(args=args,embed_dims=[24, 24, 48, 96,192])
-        elif args.vit_size =="vits":
-            self.encoder = EncoderS(args=args,embed_dims=[24, 24, 48, 96,192])
+
+        self.encoder = Encoder(args=args,embed_dims=[24, 24, 48, 96,192])
+
         
 
         self.conv1x1_layers = nn.ModuleList([

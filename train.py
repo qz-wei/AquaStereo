@@ -201,7 +201,8 @@ def save_checkpoint(model, optimizer, scheduler, scaler, args, step, save_path):
         "scaler": scaler.state_dict() if scaler is not None and hasattr(scaler, "state_dict") else None,
         "step": step,
         "args": vars(args),
-        "contains_dinov2_vitb": any("dvt_vitb14" in k or "dinov2" in k.lower() for k in model_state.keys()),
+        "vit_size": getattr(args, "vit_size", "vitb"),
+        "contains_dinov2": any("dvt_vitb14" in k or "dinov2" in k.lower() for k in model_state.keys()),
     }
 
     save_path = Path(save_path)
@@ -209,7 +210,8 @@ def save_checkpoint(model, optimizer, scheduler, scaler, args, step, save_path):
     torch.save(checkpoint, save_path)
 
     logging.info(f"Saving checkpoint to {save_path.absolute()}")
-    logging.info(f"Checkpoint contains DINOv2 vit_base: {checkpoint['contains_dinov2_vitb']}")
+    logging.info(f"Checkpoint DINO backbone: {checkpoint['vit_size']}")
+    logging.info(f"Checkpoint contains DINOv2: {checkpoint['contains_dinov2']}")
 
 
 def load_checkpoint_for_train(ckpt_path, model, optimizer=None, scheduler=None, scaler=None,
@@ -246,10 +248,78 @@ def load_checkpoint_for_train(ckpt_path, model, optimizer=None, scheduler=None, 
 
     logging.info(f"Loaded checkpoint from {ckpt_path}")
     logging.info(f"load_state_dict message: {msg}")
-    if isinstance(checkpoint, dict) and checkpoint.get("contains_dinov2_vitb") is not None:
-        logging.info(f"Checkpoint contains DINOv2 vit_base: {checkpoint['contains_dinov2_vitb']}")
+    if isinstance(checkpoint, dict):
+        if checkpoint.get("vit_size") is not None:
+            logging.info(f"Checkpoint DINO backbone: {checkpoint['vit_size']}")
+        elif isinstance(checkpoint.get("args"), dict) and checkpoint["args"].get("vit_size") is not None:
+            logging.info(f"Checkpoint DINO backbone: {checkpoint['args']['vit_size']}")
+
+        if checkpoint.get("contains_dinov2") is not None:
+            logging.info(f"Checkpoint contains DINOv2: {checkpoint['contains_dinov2']}")
+        elif checkpoint.get("contains_dinov2_vitb") is not None:
+            logging.info(f"Checkpoint contains DINOv2 vit_base: {checkpoint['contains_dinov2_vitb']}")
 
     return start_step
+
+
+def normalize_optional_path(path):
+    if path is None:
+        return None
+    if isinstance(path, str) and path.strip().lower() in ["", "none", "null"]:
+        return None
+    return path
+
+
+def read_checkpoint_args(ckpt_path):
+    """Read metadata args from a checkpoint without constructing the model."""
+    ckpt_path = normalize_optional_path(ckpt_path)
+    if ckpt_path is None or not os.path.isfile(ckpt_path):
+        return {}
+    try:
+        checkpoint = torch.load(ckpt_path, map_location="cpu")
+    except Exception as exc:
+        logging.warning(f"Failed to read checkpoint metadata from {ckpt_path}: {exc}")
+        return {}
+    if isinstance(checkpoint, dict) and isinstance(checkpoint.get("args"), dict):
+        return checkpoint["args"]
+    return {}
+
+
+def resolve_init_args(args):
+    """
+    Resolve initialization policy before AquaStereo(args) is constructed.
+
+    Rules:
+    - If restore_ckpt is provided, the full model should be initialized from that ckpt.
+      External pretrained_change3d/pretrained_dino paths are ignored by Encoder.
+    - If restore_ckpt is not provided, initialize X3D/DINO from external pretrained paths.
+    - vit_size can be inferred from checkpoint metadata when restore_ckpt is provided.
+    """
+    args.restore_ckpt = normalize_optional_path(args.restore_ckpt)
+
+    ckpt_args = read_checkpoint_args(args.restore_ckpt) if args.restore_ckpt is not None else {}
+
+    if args.vit_size is None:
+        ckpt_vit_size = ckpt_args.get("vit_size")
+        if ckpt_vit_size in ["vits", "vitb"]:
+            args.vit_size = ckpt_vit_size
+        else:
+            args.vit_size = "vitb"
+
+    if args.vit_size not in ["vits", "vitb"]:
+        raise ValueError(f"Unsupported --vit_size {args.vit_size!r}; expected 'vits' or 'vitb'.")
+
+    args.pretrained_change3d = normalize_optional_path(args.pretrained_change3d)
+    args.pretrained_dino = normalize_optional_path(args.pretrained_dino)
+
+    # When training from external pretrain, auto-select DINO path by vit_size if --pretrained_dino is omitted.
+    if args.restore_ckpt is None and args.pretrained_dino is None:
+        if args.vit_size == "vits":
+            args.pretrained_dino = getattr(args, "pretrained_dino_vits", "./pretrained/dinov2_vits14_pretrain.pth")
+        else:
+            args.pretrained_dino = getattr(args, "pretrained_dino_vitb", "./pretrained/dinov2_vitb14_pretrain.pth")
+
+    return args
 
 
 def parse_batch(data_blob, device):
@@ -282,37 +352,40 @@ def train(args):
         format='%(asctime)s %(levelname)-8s [%(filename)s:%(lineno)d] %(message)s'
     )
 
+    args = resolve_init_args(args)
+    restore_ckpt = args.restore_ckpt
+
     model = AquaStereo(args).to(device)
 
     start_step = 0
-    if args.restore_ckpt is not None:
-        assert args.restore_ckpt.endswith(".pth") or args.restore_ckpt.endswith(".pt")
-        logging.info("Loading checkpoint weights...")
-        start_step = load_checkpoint_for_train(
-            args.restore_ckpt,
-            model,
-            optimizer=None,
-            scheduler=None,
-            scaler=None,
-            device=device,
-            resume_optimizer=False,
-        )
+    logging.info(f"Using DINO backbone: {args.vit_size}")
+    if restore_ckpt is not None:
+        assert restore_ckpt.endswith(".pth") or restore_ckpt.endswith(".pt")
+        logging.info(f"restore_ckpt is set; model weights will come from checkpoint: {restore_ckpt}")
+        logging.info("External --pretrained_change3d and --pretrained_dino are ignored when restore_ckpt is set.")
+    else:
+        logging.info(f"No restore_ckpt; initialize X3D from: {args.pretrained_change3d}")
+        logging.info(f"No restore_ckpt; initialize DINO from: {args.pretrained_dino}")
 
     train_loader = datasets.fetch_dataloader(args)
 
     optimizer, scheduler = fetch_optimizer(args, model)
     scaler = GradScaler(enabled=args.mixed_precision)
 
-    if args.restore_ckpt is not None and args.resume_optimizer:
-        _ = load_checkpoint_for_train(
-            args.restore_ckpt,
+    if restore_ckpt is not None:
+        start_step = load_checkpoint_for_train(
+            restore_ckpt,
             model,
-            optimizer=optimizer,
-            scheduler=scheduler,
-            scaler=scaler,
+            optimizer=optimizer if args.resume_optimizer else None,
+            scheduler=scheduler if args.resume_optimizer else None,
+            scaler=scaler if args.resume_optimizer else None,
             device=device,
-            resume_optimizer=True,
+            resume_optimizer=args.resume_optimizer,
         )
+        if not args.resume_optimizer:
+            # Use restore_ckpt as weight initialization for a new training run.
+            # Add --resume_optimizer if you want true interrupted-training resume.
+            start_step = 0
 
     logger = Logger(model, scheduler, args.logdir)
     logger.total_steps = start_step
@@ -383,10 +456,10 @@ def main():
     parser.add_argument('--mixed_precision', action='store_true', help='use mixed precision')
     parser.add_argument('--precision_dtype', default='bfloat16', choices=['float16', 'bfloat16', 'float32'], help='Choose precision type')
     parser.add_argument('--batch_size', type=int, default=1, help="batch size used during training")
-    parser.add_argument('--train_datasets', default='fake', help="training datasets")
+    parser.add_argument('--train_datasets', default='kitti', help="training datasets")
     parser.add_argument('--lr', type=float, default=0.0001, help="max learning rate")
     parser.add_argument('--num_steps', type=int, default=200000, help="length of training schedule")
-    parser.add_argument('--image_size', type=int, nargs='+', default=[736, 736], help="size of the random image crops")
+    parser.add_argument('--image_size', type=int, nargs='+', default=[256,512], help="size of the random image crops")
     parser.add_argument('--train_iters', type=int, default=22, help="number of updates to the disparity field")
     parser.add_argument('--wdecay', type=float, default=.00001, help="Weight decay in optimizer")
     parser.add_argument('--num_workers', type=int, default=1, help='Number of parallel threads')
@@ -396,7 +469,7 @@ def main():
     parser.add_argument('--n_downsample', type=int, default=2, help="resolution of the disparity field")
     parser.add_argument('--n_gru_layers', type=int, default=3, help="number of hidden GRU levels")
     parser.add_argument('--hidden_dims', nargs='+', type=int, default=[128] * 3, help="hidden state and context dimensions")
-    parser.add_argument('--max_disp', type=int, default=192, help="max disp range")
+    parser.add_argument('--max_disp', type=int, default=768, help="max disp range")
     parser.add_argument('--s_disp_range', type=int, default=48, help="max disp of small disparity-range")
     parser.add_argument('--m_disp_range', type=int, default=96, help="max disp of medium disparity-range")
     parser.add_argument('--l_disp_range', type=int, default=192, help="max disp of large disparity-range")
@@ -410,10 +483,10 @@ def main():
     parser.add_argument('--noyjitter', action='store_true', help="don't simulate imperfect rectification")
     parser.add_argument('--num_perception_frame', type=int, default=2, help='Number of perception frames')
     parser.add_argument('--pretrained_change3d', default='./pretrained/X3D_L.pyth', type=str, help='Path to pretrained weight')
-    parser.add_argument('--pretrained_dino', default='./pretrained/dinov2_vitb14_reg4_pretrain.pth')
+    parser.add_argument('--pretrained_dino', default='./pretrained', type=str, help='Path to DINOv2 pretrained weight or pretrained directory')
     parser.add_argument('--save_freq', type=int, default=10000, help='checkpoint saving frequency')
     parser.add_argument('--resume_optimizer', action='store_true', help='resume optimizer/scheduler/scaler states from checkpoint')
-    parser.add_argument('--vit_size', default='vitb', choices=['vits', 'vitb'], help='vit size')
+    parser.add_argument('--vit_size', default='vitb', choices=['vits', 'vitb'], help='DINO backbone size. If omitted with restore_ckpt, read from checkpoint args; otherwise default to vitb')
     
     args = parser.parse_args()
     train(args)

@@ -436,7 +436,7 @@ def main():
     parser.add_argument('--noyjitter', action='store_true', help='don\'t simulate imperfect rectification')
     parser.add_argument('--num_perception_frame', type=int, default=2, help='Number of perception frames')
     parser.add_argument('--pretrained_change3d', default='./pretrained/X3D_L.pyth', type=str, help='Path to pretrained weight')
-    parser.add_argument('--pretrained_dino', default='./pretrained/dinov2_vitb14_reg4_pretrain.pth')
+    parser.add_argument('--pretrained_dino', default='./pretrained', type=str, help='Path to DINOv2 pretrained weight or pretrained directory')
     parser.add_argument('--save_freq', type=int, default=10000, help='checkpoint saving frequency')
     parser.add_argument('--resume_optimizer', action='store_true', help='resume optimizer/scheduler/scaler states from checkpoint')
     parser.add_argument('--world_size', type=int, default=None, help='Number of GPUs for DDP; default uses torch.cuda.device_count()')

@@ -1,6 +1,6 @@
 import importlib.util
 import os
-from dinov2.models.vision_transformer import vit_base
+from dinov2.models.vision_transformer import vit_base, vit_small
 
 
 from functools import partial
@@ -16,6 +16,72 @@ from core.change3d.x3d import create_x3d
 from torch.nn import functional as F
 import torch.distributed as dist
 import numpy as np
+
+
+def _normalize_optional_path(path):
+    if path is None:
+        return None
+    path = str(path)
+    if path.lower() in ["none", "null", ""]:
+        return None
+    return path
+
+
+def resolve_dino_pretrained_path(args):
+    """
+    Resolve DINOv2 pretrained path according to args.vit_size.
+
+    Usage:
+      --pretrained_dino ./pretrained
+          vitb -> ./pretrained/dinov2_vitb14_pretrain.pth
+          vits -> ./pretrained/dinov2_vits14_pretrain.pth
+
+      --pretrained_dino ./pretrained/dinov2_vitb14_pretrain.pth
+          use this file directly
+    """
+    dino_arg = _normalize_optional_path(getattr(args, "pretrained_dino", "./pretrained"))
+    vit_size = str(getattr(args, "vit_size", "vitb") or "vitb").lower()
+
+    if dino_arg is None:
+        dino_arg = "./pretrained"
+
+    if os.path.isdir(dino_arg):
+        if vit_size == "vitb":
+            return os.path.join(dino_arg, "dinov2_vitb14_pretrain.pth")
+        elif vit_size == "vits":
+            return os.path.join(dino_arg, "dinov2_vits14_pretrain.pth")
+        else:
+            raise ValueError(f"Unsupported vit_size={vit_size!r}. Expected 'vitb' or 'vits'.")
+
+    return dino_arg
+
+
+def _extract_state_dict(ckpt):
+    """Extract a state_dict from common checkpoint formats."""
+    if not isinstance(ckpt, dict):
+        return ckpt
+    for key in ("model", "model_state", "state_dict", "teacher", "student"):
+        if key in ckpt and isinstance(ckpt[key], dict):
+            return ckpt[key]
+    return ckpt
+
+
+def _clean_common_prefixes(state_dict):
+    """Remove wrappers that often appear in saved checkpoints."""
+    cleaned = {}
+    for k, v in state_dict.items():
+        nk = k
+        changed = True
+        while changed:
+            changed = False
+            for prefix in ("module.", "model."):
+                if nk.startswith(prefix):
+                    nk = nk[len(prefix):]
+                    changed = True
+        cleaned[nk] = v
+    return cleaned
+
+
 def get_resize_keep_aspect_ratio(H, W, divider=16, max_H=1232, max_W=1232):
   assert max_H%divider==0
   assert max_W%divider==0
@@ -55,29 +121,51 @@ class Encoder(nn.Module):
             requires_grad=True,
         )
 
-        self.use_dino = getattr(args, "pretrained_dino", "none") != "none"
-        if self.use_dino:
-            print("dino_pth:", args.pretrained_dino)
-            dvt_weights = torch.load(args.pretrained_dino, map_location="cpu")
-            vit_kwargs = dict(
-                img_size=518,
-                patch_size=14,
-                init_values=1.0,
-                ffn_layer="mlp",
-                block_chunks=0,
-            )
-            dvt_vitb14 = vit_base(**vit_kwargs).eval()
-            dvt_vitb14.load_state_dict(
-                dvt_weights,
-                strict=False,
-            )
-            for p in dvt_vitb14.parameters():
-                p.requires_grad_(False)
-            self.dvt_vitb14 = nn.ModuleList([dvt_vitb14])
-            self.dino_proj = nn.Sequential(nn.Conv2d(768, 24, 1))
+        # DINO is always enabled.
+        self.use_dino = True
+
+        restore_ckpt = _normalize_optional_path(getattr(args, "restore_ckpt", None))
+        dino_path = resolve_dino_pretrained_path(args)
+
+        self.vit_size = str(getattr(args, "vit_size", "vitb") or "vitb").lower()
+
+        vit_kwargs = dict(
+            img_size=518,
+            patch_size=14,
+            init_values=1.0,
+            ffn_layer="mlp",
+            block_chunks=0,
+        )
+
+        if self.vit_size == "vits":
+            dino_model = vit_small(**vit_kwargs).eval()
+            dino_dim = 384
+            dino_name = "DINOv2 ViT-S/14"
+        elif self.vit_size == "vitb":
+            dino_model = vit_base(**vit_kwargs).eval()
+            dino_dim = 768
+            dino_name = "DINOv2 ViT-B/14"
         else:
-            self.dvt_vitb14 = None
-            self.dino_proj = None
+            raise ValueError(f"Unsupported vit_size={self.vit_size!r}. Expected 'vits' or 'vitb'.")
+
+        print(f"[Encoder] Build {dino_name}, feature_dim={dino_dim}")
+
+        if restore_ckpt is not None:
+            print(f"[Encoder] restore_ckpt is set; skip external {dino_name} loading. DINO will be loaded from restore_ckpt.")
+        else:
+            if not os.path.isfile(dino_path):
+                raise FileNotFoundError(f"[Encoder] {dino_name} pretrained not found: {dino_path}")
+
+            print(f"[Encoder] Load {dino_name} pretrained: {dino_path}")
+            dino_weights = torch.load(dino_path, map_location="cpu")
+            msg = dino_model.load_state_dict(dino_weights, strict=False)
+            print(f"[Encoder] Loaded {dino_name}: {msg}")
+
+        for p in dino_model.parameters():
+            p.requires_grad_(False)
+
+        self.dvt_vitb14 = nn.ModuleList([dino_model])
+        self.dino_proj = nn.Sequential(nn.Conv2d(dino_dim, 24, 1))
 
         self.fc = nn.ModuleList([
             nn.Sequential(
@@ -94,14 +182,23 @@ class Encoder(nn.Module):
         ])
 
     def _load_x3d_pretrained(self) -> None:
+        restore_ckpt = _normalize_optional_path(getattr(self.args, "restore_ckpt", None))
+        pretrained = _normalize_optional_path(getattr(self.args, "pretrained_change3d", None))
 
-        pretrained = getattr(self.args, "pretrained_change3d", None)
-        if pretrained is None or str(pretrained).lower() in ["", "none", "null"]:
-            print("[Encoder] Skip X3D pretrained loading because args.pretrained is empty.")
+        # restore_ckpt has the highest priority. When it is provided, the whole
+        # model state, including encoder.x3d, should come from that checkpoint.
+        if restore_ckpt is not None:
+            print("[Encoder] restore_ckpt is set; skip external X3D loading. X3D will be loaded from restore_ckpt.")
             return
+
+        if pretrained is None:
+            raise ValueError(
+                "X3D pretrained path is empty and --restore_ckpt is not provided. "
+                "Pass --pretrained_change3d for training from external pretrain."
+            )
+
         if not os.path.isfile(pretrained):
-            print(f"[Encoder] X3D pretrained not found, skip loading: {pretrained}")
-            return
+            raise FileNotFoundError(f"[Encoder] X3D pretrained not found: {pretrained}")
 
         ckpt = torch.load(pretrained, map_location="cpu")
         if isinstance(ckpt, dict):
@@ -123,6 +220,8 @@ class Encoder(nn.Module):
                 nk = nk[len("module."):]
             if nk.startswith("x3d."):
                 nk = nk[len("x3d."):]
+            if nk.startswith("encoder.x3d."):
+                nk = nk[len("encoder.x3d."):]
             cleaned[nk] = v
 
         try:
@@ -132,7 +231,6 @@ class Encoder(nn.Module):
             msg = self.x3d.load_state_dict(cleaned, strict=False)
             print(f"[Encoder] Loaded X3D pretrained with strict=False: {pretrained}, {msg}")
             print(f"[Encoder] strict=True failed with: {e}")
-
     def _resize_perception_frames(self, x: torch.Tensor) -> torch.Tensor:
 
         B, _, H, W = x.shape
