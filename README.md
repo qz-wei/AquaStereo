@@ -11,7 +11,7 @@
 <a href="YOUR_ARXIV_LINK_HERE">
   <img src="https://img.shields.io/badge/arXiv-Paper-b31b1b?logo=arxiv" alt="arXiv">
 </a>
-<a href="YOUR_HUGGINGFACE_LINK_HERE">
+<a href="https://huggingface.co/wqz123/AquaStereo/tree/main">
   <img src="https://img.shields.io/badge/Model-HuggingFace-yellow?logo=huggingface" alt="Hugging Face">
 </a>
 <a href="YOUR_DEMO_LINK_HERE">
@@ -101,16 +101,16 @@ Backbone pretrained weights are required only for training. AquaStereo checkpoin
 
 | Component | File name | Link |
 | :-------: | :-------- | :--- |
-| X3D | `X3D_L.pyth` | [Download](YOUR_X3D_PRETRAIN_LINK_HERE) |
-| DINOv2 ViT-B | `dinov2_vitb14_reg4_pretrain.pth` | [Download](YOUR_DINOV2_VITB_PRETRAIN_LINK_HERE) |
-| DINOv2 ViT-S | `dinov2_vits14_reg4_pretrain.pth` | [Download](YOUR_DINOV2_VITS_PRETRAIN_LINK_HERE) |
+| X3D | `X3D_L.pyth` | [Download](https://dl.fbaipublicfiles.com/pytorchvideo/model_zoo/kinetics/X3D_L.pyth) |
+| DINOv2 ViT-B | `dinov2_vitb14_reg4_pretrain.pth` | [Download](https://dl.fbaipublicfiles.com/dinov2/dinov2_vitb14/dinov2_vitb14_reg4_pretrain.pth) |
+| DINOv2 ViT-S | `dinov2_vits14_reg4_pretrain.pth` | [Download](https://dl.fbaipublicfiles.com/dinov2/dinov2_vits14/dinov2_vits14_reg4_pretrain.pth) |
 
 ### AquaStereo Checkpoints
 
 | Model | ViT backbone | Link |
 | :---: | :----------: | :--- |
-| AquaStereo-ViT-B | ViT-B | [Download](YOUR_AQUASTEREO_VITB_CKPT_LINK_HERE) |
-| AquaStereo-ViT-S | ViT-S | [Download](YOUR_AQUASTEREO_VITS_CKPT_LINK_HERE) |
+| AquaStereo-ViT-B | ViT-B | [Download](https://huggingface.co/wqz123/AquaStereo/resolve/main/AquaStereo_vitb_best.pth) |
+| AquaStereo-ViT-S | ViT-S | [Download](https://huggingface.co/wqz123/AquaStereo/resolve/main/AquaStereo_vits_best.pth) |
 
 Please place the training backbone pretrained weights under:
 
