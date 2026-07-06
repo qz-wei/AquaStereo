@@ -11,7 +11,7 @@
 <a href="YOUR_ARXIV_LINK_HERE">
   <img src="https://img.shields.io/badge/arXiv-Paper-b31b1b?logo=arxiv" alt="arXiv">
 </a>
-<a href="https://huggingface.co/wqz123/AquaStereo/tree/main">
+<a href="https://huggingface.co/qz-wei/AquaStereo/tree/main">
   <img src="https://img.shields.io/badge/Model-HuggingFace-yellow?logo=huggingface" alt="Hugging Face">
 </a>
 <a href="YOUR_DEMO_LINK_HERE">
@@ -109,8 +109,8 @@ Backbone pretrained weights are required only for training. AquaStereo checkpoin
 
 | Model | ViT backbone | Link |
 | :---: | :----------: | :--- |
-| AquaStereo-ViT-B | ViT-B | [Download](https://huggingface.co/wqz123/AquaStereo/resolve/main/AquaStereo_vitb_best.pth) |
-| AquaStereo-ViT-S | ViT-S | [Download](https://huggingface.co/wqz123/AquaStereo/resolve/main/AquaStereo_vits_best.pth) |
+| AquaStereo-ViT-B | ViT-B | [Download](https://huggingface.co/qz-wei/AquaStereo/resolve/main/AquaStereo_vitb_best.pth) |
+| AquaStereo-ViT-S | ViT-S | [Download](https://huggingface.co/qz-wei/AquaStereo/resolve/main/AquaStereo_vits_best.pth) |
 
 Please place the training backbone pretrained weights under:
 
