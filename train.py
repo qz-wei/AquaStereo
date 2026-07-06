@@ -1,6 +1,4 @@
 import os
-# 单卡训练：这里写物理 GPU 编号。比如只用第 2 张卡，就保留 "2"。
-# 注意：设置以后，程序内部看到的 cuda:0 就是物理 GPU 2。
 os.environ.setdefault("CUDA_VISIBLE_DEVICES", "0")
 
 import argparse
