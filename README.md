@@ -8,7 +8,7 @@
 
 **AquaStereo:Enabling Underwater Stereo Matching via Depth-Conditioned Diffusion and Geometry Self-Distillation**
 
-<a href="YOUR_ARXIV_LINK_HERE">
+<a href="https://arxiv.org/pdf/2607.04303">
   <img src="https://img.shields.io/badge/arXiv-Paper-b31b1b?logo=arxiv" alt="arXiv">
 </a>
 <a href="https://huggingface.co/qz-wei/AquaStereo/tree/main">
