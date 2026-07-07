@@ -6,7 +6,7 @@
 
 <div align="center">
 
-**AquaStereo:Enabling Underwater Stereo Matching via Depth-Conditioned Diffusion and Geometry Self-Distillation**
+## AquaStereo:Enabling Underwater Stereo Matching via Depth-Conditioned Diffusion and Geometry Self-Distillation
 
 <a href="https://arxiv.org/pdf/2607.04303">
   <img src="https://img.shields.io/badge/arXiv-Paper-b31b1b?logo=arxiv" alt="arXiv">
@@ -277,12 +277,16 @@ __pycache__/
 If you find AquaStereo useful in your research, please consider citing our work:
 
 ```bibtex
-@inproceedings{aquastereo,
-  title     = {AquaStereo},
-  author    = {},
-  booktitle = {},
-  year      = {}
+@misc{wei2026aquastereoenablingunderwaterstereo,
+      title={AquaStereo: Enabling Underwater Stereo Matching via Depth-Conditioned Diffusion and Geometry Self-Distillation}, 
+      author={Qizhe Wei and Yingping Liang and Shaodi You and Ying Fu},
+      year={2026},
+      eprint={2607.04303},
+      archivePrefix={arXiv},
+      primaryClass={cs.CV},
+      url={https://arxiv.org/abs/2607.04303}, 
 }
+
 ```
 
 ---
@@ -290,4 +294,3 @@ If you find AquaStereo useful in your research, please consider citing our work:
 ## Acknowledgements
 
 This project is based on [RAFT-Stereo](https://github.com/princeton-vl/RAFT-Stereo), [GMStereo](https://github.com/autonomousvision/unimatch), [CoEx](https://github.com/antabangun/coex), and [IGEV++](https://github.com/gangweix/IGEV-plusplus). We thank the original authors for their excellent works.
-

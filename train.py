@@ -144,7 +144,6 @@ def parameters_size_in_MB(model):
 
 
 def unwrap_model(model):
-    # 单卡版本没有 DDP，直接返回 model。
     return model
 
 
@@ -193,7 +192,7 @@ def resize_perception_frames_if_needed(state_dict, model):
 def save_checkpoint(model, optimizer, scheduler, scaler, args, step, save_path):
     model_state = get_full_model_state_dict(model)
     checkpoint = {
-        "model": model_state,
+        "model_state": model_state,
         "optimizer": optimizer.state_dict() if optimizer is not None else None,
         "scheduler": scheduler.state_dict() if scheduler is not None else None,
         "scaler": scaler.state_dict() if scaler is not None and hasattr(scaler, "state_dict") else None,
@@ -457,7 +456,7 @@ def main():
     parser.add_argument('--train_datasets', default='kitti', help="training datasets")
     parser.add_argument('--lr', type=float, default=0.0001, help="max learning rate")
     parser.add_argument('--num_steps', type=int, default=200000, help="length of training schedule")
-    parser.add_argument('--image_size', type=int, nargs='+', default=[256,512], help="size of the random image crops")
+    parser.add_argument('--image_size', type=int, nargs='+', default=[320,736], help="size of the random image crops")
     parser.add_argument('--train_iters', type=int, default=22, help="number of updates to the disparity field")
     parser.add_argument('--wdecay', type=float, default=.00001, help="Weight decay in optimizer")
     parser.add_argument('--num_workers', type=int, default=1, help='Number of parallel threads')
